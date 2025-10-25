@@ -1,0 +1,53 @@
+name: Linux RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    steps:
+    - name: Install XRDP and Desktop Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xrdp xfce4 xfce4-goodies
+        sudo systemctl enable xrdp
+        echo "xfce4-session" > ~/.xsession
+        
+    - name: Create RDP User
+      run: |
+        sudo useradd -m -s /bin/bash rdpuser
+        # Generate secure password
+        password=$(openssl rand -base64 16)
+        echo "rdpuser:$password" | sudo chpasswd
+        echo "RDP_CREDS=User: rdpuser | Password: $password" >> $GITHUB_ENV
+        sudo usermod -aG sudo rdpuser
+        
+    - name: Configure XRDP
+      run: |
+        sudo sed -i 's/port=3389/port=3390/g' /etc/xrdp/xrdp.ini
+        sudo systemctl restart xrdp
+        
+    - name: Install Tailscale
+      run: |
+        curl -fsSL https://tailscale.com/install.sh | sh
+        sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=linux-gh-runner-$GITHUB_RUN_ID
+        
+    - name: Get Tailscale IP
+      run: |
+        ts_ip=$(tailscale ip -4)
+        echo "TAILSCALE_IP=$ts_ip" >> $GITHUB_ENV
+        echo "RDP Port: 3390"
+        
+    - name: Keep Alive
+      run: |
+        echo "=== Linux RDP Access ==="
+        echo "Address: $TAILSCALE_IP:3390"
+        echo "Credentials: $RDP_CREDS"
+        echo "========================"
+        while true; do
+          sleep 300
+          echo "[$(date)] RDP session active..."
+        done
